@@ -6,3 +6,4 @@ repository = "https://github.com/abus-sh/compose-builder"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+clap = { version = "4.6.9", features = ["derive"] }
