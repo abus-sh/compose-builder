@@ -1,4 +1,6 @@
+use anyhow::Result;
 use clap::Parser;
+use compose_builder::collect_files;
 
 /// Generate compose2nix modules from compose files
 #[derive(Parser, Debug)]
@@ -13,8 +15,13 @@ struct Args {
     project: String,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let args = Args::parse();
 
-    println!("{:?}", args);
+    let files = collect_files(&args.directory)?;
+    for file in files {
+        dbg!(file);
+    }
+
+    Ok(())
 }
