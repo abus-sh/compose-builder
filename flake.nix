@@ -27,7 +27,18 @@
         inherit (pkgs) lib;
 
         craneLib = crane.mkLib pkgs;
-        src = craneLib.cleanCargoSource ./.;
+        src =
+          # By default, craneLib.filterCargoSources filters out non-Rust files, including the YAML
+          # files used in integration tests. This makes the integration tests fail.
+          let
+            yamlFilter = path: _type: builtins.match ".*yaml$" path != null;
+            yamlOrCargo = path: type: (yamlFilter path type) || (craneLib.filterCargoSources path type);
+          in
+          lib.cleanSourceWith {
+            src = ./.;
+            filter = yamlOrCargo;
+            name = "source";
+          };
 
         # Common arguments can be set here to avoid repeating them later
         commonArgs = {
