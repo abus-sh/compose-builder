@@ -4,14 +4,27 @@ use compose_builder::{FileInfo, Specialisation, collect_files};
 
 // Given two arrays (where each array has no repeated elements), check if the arrays contain the
 // same elements, regardless of order.
-fn compare_lists<T: PartialEq + Debug>(a: &[T], b: &[T]) -> bool {
+fn assert_compare_lists<T: PartialEq + Debug>(given: &[T], expected: &[T]) {
     // Arrays with a different number of elements can't be equal
-    if a.len() != b.len() {
-        return false;
+    assert_eq!(given.len(), expected.len(), "mismatch in len");
+
+    // Require all elements of a to be in b
+    for elem_a in given {
+        assert!(
+            expected.contains(elem_a),
+            "extra element in given array: {:?}",
+            elem_a
+        );
     }
 
-    // If all elements of a are in b, then the arrays are equal
-    a.iter().all(|e| b.contains(e))
+    // Require all elements of b to be in a
+    for elem_b in expected {
+        assert!(
+            given.contains(elem_b),
+            "missing element in expected array: {:?}",
+            elem_b
+        );
+    }
 }
 
 #[test]
@@ -51,8 +64,41 @@ fn test_collect_files_2() {
         },
     ];
 
-    assert!(
-        compare_lists(&files, &expected_files),
-        "not all files collected"
-    );
+    assert_compare_lists(&files, &expected_files);
+}
+
+#[test]
+fn test_collect_files_3() {
+    let files = collect_files("tests/compose3").expect("unable to read compose3 test directory");
+
+    assert_eq!(files.len(), 4);
+
+    let expected_files = vec![
+        FileInfo {
+            service_name: "foo".to_string(),
+            path: PathBuf::from(r"tests/compose3/compose.foo.yaml"),
+            tag: None,
+            specialisation: None,
+        },
+        FileInfo {
+            service_name: "foo".to_string(),
+            path: PathBuf::from(r"tests/compose3/compose.foo.dev.yaml"),
+            tag: Some("dev".to_string()),
+            specialisation: Some(Specialisation::Development),
+        },
+        FileInfo {
+            service_name: "foo".to_string(),
+            path: PathBuf::from(r"tests/compose3/compose.foo.prod.yaml"),
+            tag: Some("prod".to_string()),
+            specialisation: Some(Specialisation::Production),
+        },
+        FileInfo {
+            service_name: "foo".to_string(),
+            path: PathBuf::from(r"tests/compose3/compose.foo.secret.yaml"),
+            tag: Some("secret".to_string()),
+            specialisation: Some(Specialisation::Production),
+        },
+    ];
+
+    assert_compare_lists(&files, &expected_files)
 }

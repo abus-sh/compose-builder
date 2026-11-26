@@ -1,7 +1,12 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
-use anyhow::Result;
+//use anyhow::Result;
+use serde::Deserialize;
 use strum::EnumString;
+use thiserror::Error;
 use walkdir::WalkDir;
 
 #[derive(Debug, PartialEq, EnumString, Clone)]
@@ -66,7 +71,22 @@ impl FromStr for FileName {
     }
 }
 
-pub fn collect_files(root_dir: &str) -> Result<Vec<FileInfo>> {
+#[derive(Debug, Error)]
+pub enum CollectError {
+    #[error("io error")]
+    Io(#[from] std::io::Error),
+
+    #[error("strum parse error")]
+    InvalidEnum(#[from] strum::ParseError),
+
+    #[error("serde parse error")]
+    Serde(#[from] serde_saphyr::DeserializeError),
+
+    #[error("walkdir error")]
+    WalkDir(#[from] walkdir::Error),
+}
+
+pub fn collect_files(root_dir: &str) -> Result<Vec<FileInfo>, CollectError> {
     let mut info = Vec::new();
 
     for entry in WalkDir::new(root_dir) {
@@ -78,13 +98,15 @@ pub fn collect_files(root_dir: &str) -> Result<Vec<FileInfo>> {
         };
 
         let specialisation: Option<_> = if let Some(tag) = file_name.tag.as_deref() {
+            // If the tag is a valid spec, use that. Otherwise, read the file to look for a spec.
             if let Ok(spec) = Specialisation::from_str(tag) {
                 Some(spec)
             } else {
-                todo!("parse yaml file to check for spec");
+                get_spec_from_file(entry.path())?
             }
         } else {
-            todo!("parse yaml file to check for spec")
+            // If there is no tag, read the file to check for a spec.
+            get_spec_from_file(entry.path())?
         };
 
         info.push(FileInfo {
@@ -96,6 +118,34 @@ pub fn collect_files(root_dir: &str) -> Result<Vec<FileInfo>> {
     }
 
     Ok(info)
+}
+
+/// Given a path, read the file and extract the specialisation using the `x-compose-builder-spec`
+/// key. If no specialisation exists, return Ok(None).
+fn get_spec_from_file<P: AsRef<Path>>(path: P) -> Result<Option<Specialisation>, CollectError> {
+    let contents = std::fs::read_to_string(path)?;
+    get_spec_from_str(&contents)
+}
+
+/// Given a YAML string, extract the specialisation using the `x-compose-builder-spec` key. If no
+/// specialisation exists, return Ok(None).
+fn get_spec_from_str(text: &str) -> Result<Option<Specialisation>, CollectError> {
+    #[derive(Deserialize)]
+    struct StrSpec<'a> {
+        #[serde(rename = "x-compose-builder-spec")]
+        spec: Option<&'a str>,
+    }
+
+    // Check if `x-compose-builder-spec` is present. If it isn't, assume no spec. If it is, require
+    // it to be a valid spec.
+    let str_spec: StrSpec = serde_saphyr::from_str(text)?;
+
+    // If a spec was read, make sure it's valid. If it wasn't, assume no spec.
+    Ok(if let Some(s) = str_spec.spec {
+        Some(Specialisation::from_str(s)?)
+    } else {
+        None
+    })
 }
 
 #[cfg(test)]
@@ -155,5 +205,64 @@ mod tests {
         Specialisation::from_str("Production").unwrap();
         Specialisation::from_str("PROD").unwrap();
         Specialisation::from_str("PRODUCTION").unwrap();
+    }
+
+    #[test]
+    fn test_get_spec_from_str() {
+        // Valid cases
+        let yaml_str = "";
+        let spec = get_spec_from_str(yaml_str).expect("unable to parse valid yaml");
+        assert!(spec.is_none(), "spec was returned for no spec");
+
+        let yaml_str = "x-compose-builder-spec: dev";
+        let spec = get_spec_from_str(yaml_str)
+            .expect("unable to parse valid yaml")
+            .expect("no spec returned for dev spec");
+        assert_eq!(spec, Specialisation::Development);
+
+        let yaml_str = "x-compose-builder-spec: prod";
+        let spec = get_spec_from_str(yaml_str)
+            .expect("unable to parse valid yaml")
+            .expect("no spec returned for prod spec");
+        assert_eq!(spec, Specialisation::Production);
+
+        let yaml_str = "x-compose-builder-spec: development";
+        let spec = get_spec_from_str(yaml_str)
+            .expect("unable to parse valid yaml")
+            .expect("no spec returned for dev spec");
+        assert_eq!(spec, Specialisation::Development);
+
+        let yaml_str = "x-compose-builder-spec: production";
+        let spec = get_spec_from_str(yaml_str)
+            .expect("unable to parse valid yaml")
+            .expect("no spec returned for prod spec");
+        assert_eq!(spec, Specialisation::Production);
+
+        let yaml_str = r"x-compose-builder-spec: prod
+
+services:
+  foo:
+    environment:
+      NUMBER=42
+";
+        let spec = get_spec_from_str(yaml_str)
+            .expect("unable to parse valid yaml")
+            .expect("no spec returned for prod spec");
+        assert_eq!(spec, Specialisation::Production);
+
+        // Invalid cases
+        let yaml_str = r#"x-compose-builder-spec: "dev"#;
+        let err = get_spec_from_str(yaml_str).expect_err("parsed invalid yaml");
+        assert!(
+            matches!(err, CollectError::Serde(_)),
+            "wrong error returned"
+        );
+
+        let yaml_str = r"x-compose-builder-spec: staging";
+        let err = get_spec_from_str(yaml_str).expect_err("parsed invalid spec");
+        assert!(
+            matches!(err, CollectError::InvalidEnum(_)),
+            "wrong error returned"
+        );
     }
 }
