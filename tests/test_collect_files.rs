@@ -1,6 +1,6 @@
 use std::{fmt::Debug, path::PathBuf};
 
-use compose_builder::{FileInfo, Specialisation, collect_files};
+use compose_builder::collect::{FileInfo, Specialisation, collect_files};
 
 // Given two arrays (where each array has no repeated elements), check if the arrays contain the
 // same elements, regardless of order.

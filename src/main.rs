@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use compose_builder::collect_files;
+use compose_builder::collect::collect_files;
 
 /// Generate compose2nix modules from compose files
 #[derive(Parser, Debug)]
